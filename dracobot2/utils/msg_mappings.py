@@ -69,11 +69,7 @@ async def forward_message(message, chat_id, bot, session, message_from=Role.DRAG
             else:
                 reply_to_message_id = reply_message.sender_message_id
 
-    if is_forward:
-        sent_msg = message.forward(chat_id)
-        caption_msg = bot.send_message(
-            chat_id=chat_id, text=caption_style_text, reply_to_message_id=sent_msg.message_id)
-    elif is_photo:
+    if is_photo:
         highest_res_photo = get_highest_resolution(message.photo)
         sent_msg = await bot.send_photo(chat_id=chat_id, photo=highest_res_photo,
                                   caption=caption_style_text, reply_to_message_id=reply_to_message_id)

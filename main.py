@@ -2,6 +2,7 @@ import logging
 import math
 import os
 import time
+import traceback
 
 from dotenv import load_dotenv
 from sqlalchemy import or_
@@ -88,11 +89,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
                 welcome_message = WELCOME_MESSAGE.format(**{
                     'name': user_db.details.name,
                     'dragon_name': dragon.details.name,
-                    'dragon_room_number': dragon.details.room_number,
-                    'dragon_likes': dragon.details.likes,
-                    'dragon_dislikes': dragon.details.dislikes,
-                    'dragon_requests': dragon.details.requests,
-                    'dragon_level': dragon.details.level
                 })
                 messages = list(filter(lambda x: len(x) > 0, welcome_message.split('\n\n\n')))
                 for message in messages:
@@ -392,6 +388,7 @@ def done_chat(target):
 
 async def _error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(context.error)
+    logger.error(traceback.print_tb(context.error.__traceback__))
 
 
 def main():
