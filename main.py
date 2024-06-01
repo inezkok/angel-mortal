@@ -1,18 +1,22 @@
-from dracobot2.utils import *
-from dracobot2.resources import *
-from dracobot2.models import User, Role
-from dracobot2.config import SessionLocal
-from sqlalchemy.orm import scoped_session
-from sqlalchemy import or_
-from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters,
-                          ConversationHandler, PicklePersistence)
-from telegram import (ReplyKeyboardMarkup, ReplyKeyboardRemove)
-from telegram.ext.dispatcher import run_async
-import os
 import logging
-import time
 import math
+import os
+import time
+
 from dotenv import load_dotenv
+from sqlalchemy import or_
+from sqlalchemy.orm import scoped_session
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import (Application, CommandHandler, ContextTypes,
+                          ConversationHandler, MessageHandler,
+                          PicklePersistence, filters)
+
+from dracobot2.config import SessionLocal
+from dracobot2.models import Role, User
+from dracobot2.resources import *
+from dracobot2.utils import *
+from dracobot2.utils.msg_private import is_message_private
+
 load_dotenv()
 
 
@@ -34,7 +38,7 @@ DEFAULT_REPLY_MARKUP = {'reply_markup': ReplyKeyboardMarkup(
 REMOVE_REPLY_MARKUP = {'reply_markup': ReplyKeyboardRemove()}
 
 def get_filter_complete_match(match_string):
-    return Filters.regex('^' + match_string + '$')
+    return filters.Regex('^' + match_string + '$')
 
 COMMAND_FILTER_REGEX = get_filter_complete_match(ABOUT_THE_BOT_KEY) | get_filter_complete_match(DRAGON_CHAT_KEY) | get_filter_complete_match(TRAINER_CHAT_KEY) | get_filter_complete_match(STATUS_KEY) | get_filter_complete_match(HELP_KEY) | get_filter_complete_match(RULES_KEY)
 
@@ -47,16 +51,16 @@ CHAT_TIMEOUT_SECONDS = 2 * 60
 
 
 def db_session(method):
-    def db_session_decorator(update, context):
+    async def db_session_decorator(update, context):
         session = Session()
-        return_value = method(update, context, session)
+        return_value = await method(update, context, session)
         session.close()
         return return_value
     return db_session_decorator
 
 
 @db_session
-def start(update, context, session):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     user = update.message.from_user
 
@@ -92,35 +96,35 @@ def start(update, context, session):
                 })
                 messages = list(filter(lambda x: len(x) > 0, welcome_message.split('\n\n\n')))
                 for message in messages:
-                    update.message.reply_text(message)
+                    await update.message.reply_text(message, parse_mode=telegram.constants.ParseMode.HTML)
                     time.sleep(math.ceil(len(message) / 40) + 1)
 
             else:
-                update.message.reply_text(USER_NO_DRAGON)
+                await update.message.reply_text(USER_NO_DRAGON)
 
         session.commit()
 
-        update.message.reply_text(HELLO_GREETING.format(
+        await update.message.reply_text(HELLO_GREETING.format(
             first_name), **DEFAULT_REPLY_MARKUP)
 
         return MAIN
     else:
-        update.message.reply_text(USER_UNREGISTERED)
+        await update.message.reply_text(USER_UNREGISTERED)
 
         if user.username is None:
-            update.message.reply_text(USER_NO_TELE_HANDLE)
+            await update.message.reply_text(USER_NO_TELE_HANDLE)
 
         return UNREGISTERED
 
 
-def about(update, context):
-    update.message.reply_text(ABOUT_THE_BOT, **DEFAULT_REPLY_MARKUP)
+async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(ABOUT_THE_BOT, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
 
 @db_session
-def helps(update, context, session):
+async def helps(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     user = update.message.from_user
     chat_id = update.message.chat_id
 
@@ -130,20 +134,20 @@ def helps(update, context, session):
     if user_db.details:
         first_name = user_db.details.name
 
-    update.message.reply_text(HELP_MESSAGE.format(
-        first_name), parse_mode=telegram.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
+    await update.message.reply_text(HELP_MESSAGE.format(
+        first_name), parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
 
-def rules(update, context):
-    update.message.reply_text(GAME_RULES_MESSAGE, parse_mode=telegram.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(GAME_RULES_MESSAGE, parse_mode=telegram.constants.ParseMode.HTML, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
 
 @db_session
-def status(update, context, session):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     cur_user = session.query(User).filter(User.chat_id == chat_id).first()
 
@@ -182,13 +186,13 @@ def status(update, context, session):
     if dragon_details is not None:
         message += '\n' + DRAGON_DETAILS.format(**dragon_details)
 
-    update.message.reply_text(message, **DEFAULT_REPLY_MARKUP)
+    await update.message.reply_text(message, **DEFAULT_REPLY_MARKUP)
 
     return MAIN
 
 
 @db_session
-def check_trainer(update, context, session):
+async def check_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     cur_user_id = session.query(User).filter(
         User.chat_id == chat_id).first().id
@@ -196,20 +200,20 @@ def check_trainer(update, context, session):
     trainer = session.query(User).filter(User.dragon_id == cur_user_id).first()
 
     if trainer is None:
-        update.message.reply_text(USER_NO_TRAINER, **DEFAULT_REPLY_MARKUP)
+        await update.message.reply_text(USER_NO_TRAINER, **DEFAULT_REPLY_MARKUP)
         return END
     elif not trainer.registered:
-        update.message.reply_text(
+        await update.message.reply_text(
             USER_UNREGISTERED_TRAINER, **DEFAULT_REPLY_MARKUP)
         return END
     else:
-        update.message.reply_text(
+        await update.message.reply_text(
             CONNECTION_SUCCESS.format(TRAINER_KEY), **REMOVE_REPLY_MARKUP)
         return TRAINER_CHAT
 
 
 @db_session
-def check_dragon(update, context, session):
+async def check_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     dragon_id = session.query(User).filter(
         User.chat_id == chat_id).first().dragon_id
@@ -217,48 +221,52 @@ def check_dragon(update, context, session):
     dragon = session.query(User).filter(User.id == dragon_id).first()
 
     if dragon is None:
-        update.message.reply_text(USER_NO_DRAGON, **DEFAULT_REPLY_MARKUP)
+        await update.message.reply_text(USER_NO_DRAGON, **DEFAULT_REPLY_MARKUP)
         return END
     elif not dragon.registered:
-        update.message.reply_text(
+        await update.message.reply_text(
             USER_UNREGISTERED_DRAGON, **DEFAULT_REPLY_MARKUP)
         return END
     else:
-        update.message.reply_text(
+        await update.message.reply_text(
             CONNECTION_SUCCESS.format(DRAGON_KEY), **REMOVE_REPLY_MARKUP)
         return DRAGON_CHAT
 
 
 @db_session
-def check_admin(update, context, session):
+async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     user_db = session.query(User).filter(User.chat_id == chat_id).first()
 
     if user_db and user_db.is_admin:
-        update.message.reply_text(ADMIN_GREETING, **REMOVE_REPLY_MARKUP)
+        await update.message.reply_text(ADMIN_GREETING, **REMOVE_REPLY_MARKUP)
         return ADMIN_CHAT
 
-    update.message.reply_text(UNKNOWN_COMMAND)
+    await update.message.reply_text(UNKNOWN_COMMAND)
     return END
 
 
-def send_message_to_dragon(update, context, session):
+async def send_message_to_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     dragon_id = session.query(User).filter(
         User.chat_id == chat_id).first().dragon_id
 
     dragon = session.query(User).filter(User.id == dragon_id).first()
 
+    if not is_message_private(update.message):
+        await update.message.reply_text(NON_PRIVATE_MESSAGE, reply_to_message_id=update.message.message_id, **REMOVE_REPLY_MARKUP)
+        return DRAGON_CHAT
+
     if dragon is not None:
-        forward_message(update.message, dragon.chat_id,
+        await forward_message(update.message, dragon.chat_id,
                         context.bot, session, message_from=Role.TRAINER)
         return DRAGON_CHAT
     else:
-        update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
+        await update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
         return END
 
 
-def send_message_to_trainer(update, context, session):
+async def send_message_to_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     cur_user_id = session.query(User).filter(
         User.chat_id == chat_id).first().id
@@ -266,26 +274,26 @@ def send_message_to_trainer(update, context, session):
     trainer = session.query(User).filter(User.dragon_id == cur_user_id).first()
 
     if trainer is not None:
-        forward_message(update.message, trainer.chat_id,
+        await forward_message(update.message, trainer.chat_id,
                         context.bot, session, message_from=Role.DRAGON)
         return TRAINER_CHAT
     else:
-        update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
+        await update.message.reply_text(CONNECTION_ERROR, **REMOVE_REPLY_MARKUP)
         return END
 
 
 @db_session
-def send_trainer(update, context, session):
-    return send_message_to_trainer(update, context, session)
+async def send_trainer(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    return await send_message_to_trainer(update, context, session)
 
 
 @db_session
-def send_dragon(update, context, session):
-    return send_message_to_dragon(update, context, session)
+async def send_dragon(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    return await send_message_to_dragon(update, context, session)
 
 
 @db_session
-def send_admin(update, context, session):
+async def send_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     chat_id = update.message.chat_id
     user_db = session.query(User).filter(User.chat_id == chat_id).first()
 
@@ -296,7 +304,7 @@ def send_admin(update, context, session):
 
     for to_send_user in all_users:
         if to_send_user.id != user_db.id:
-            forward_message(update.message, to_send_user.chat_id,
+            await forward_message(update.message, to_send_user.chat_id,
                             context.bot, session, message_from=Role.ADMIN)
 
     return ADMIN_CHAT
@@ -304,21 +312,21 @@ def send_admin(update, context, session):
 
 def handle_reply_message(current_mode):
     @db_session
-    def inner_reply_message(update, context, session):
+    async def inner_reply_message(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         new_mode = check_reply_mapping(update.message, session)
         ret_value = END
 
         if new_mode == Role.TRAINER or (new_mode is None and current_mode == Role.TRAINER):
-            ret_value = send_message_to_trainer(update, context, session)
+            ret_value = await send_message_to_trainer(update, context, session)
         elif new_mode == Role.DRAGON or (new_mode is None and current_mode == Role.DRAGON):
-            ret_value = send_message_to_dragon(update, context, session)
+            ret_value = await send_message_to_dragon(update, context, session)
 
         if new_mode is not None:
             if current_mode is None:
-                update.message.reply_text(USER_REPLY_SHORTCUT.format(
+                await update.message.reply_text(USER_REPLY_SHORTCUT.format(
                     TRAINER_KEY if new_mode == Role.TRAINER else DRAGON_KEY), **REMOVE_REPLY_MARKUP),
             elif current_mode != new_mode:
-                update.message.reply_text(USER_REPLY_CHANGE_MODE.format(
+                await update.message.reply_text(USER_REPLY_CHANGE_MODE.format(
                     TRAINER_KEY if new_mode == Role.TRAINER else DRAGON_KEY), **REMOVE_REPLY_MARKUP)
 
         return ret_value
@@ -326,64 +334,63 @@ def handle_reply_message(current_mode):
 
 
 @db_session
-def handle_edited_message(update, context, session):
-    edit_message(update, context, session)
+async def handle_edited_message(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    await edit_message(update, context, session)
 
 
 @db_session
-def handle_delete_message(update, context, session):
-    delete_message_reply(update.message, context.bot, session)
+async def handle_delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    await delete_message_reply(update.message, context.bot, session)
 
 
-def unknown_message(update, context):
-    update.message.reply_text(UNKNOWN_COMMAND)
+async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(UNKNOWN_COMMAND)
 
 
 def handle_unknown_message_chat(target):
-    def unknown_message_chat(update, context):
-        update.message.reply_text(UNKNOWN_CHAT_COMMAND.format(target))
+    async def unknown_message_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(UNKNOWN_CHAT_COMMAND.format(target))
     return unknown_message_chat
 
 
 @db_session
-def handle_delete_admin(update, context, session):
+async def handle_delete_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     if len(context.args) == 2:
         chat_id, message_id = context.args
-        delete_message(update.message, message_id,
+        await delete_message(update.message, message_id,
                        chat_id, None, context.bot, session)
     else:
-        delete_message_reply(update.message, context.bot, session)
+        await delete_message_reply(update.message, context.bot, session)
     return ADMIN_CHAT
 
 
-def unsupported_media(update, context):
-    update.message.reply_text(
+async def unsupported_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         UNSUPPORTED_MEDIA, reply_to_message_id=update.message.message_id, **REMOVE_REPLY_MARKUP)
 
 
-def handle_timeout_chat(update, context):
+async def handle_timeout_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     timeout_message = ""
     if CHAT_TIMEOUT_SECONDS < 60:
         timeout_message = str(CHAT_TIMEOUT_SECONDS) + " second(s)"
     else:
         timeout_message = str(CHAT_TIMEOUT_SECONDS // 60) + " minutes(s)"
 
-    update.message.reply_text(TIMEOUT_MESSAGE.format(timeout_message), **DEFAULT_REPLY_MARKUP)
+    await update.message.reply_text(TIMEOUT_MESSAGE.format(timeout_message), **DEFAULT_REPLY_MARKUP)
 
     return END
 
 
 def done_chat(target):
-    def inner_done_chat(update, context):
-        update.message.reply_text(
+    async def inner_done_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(
             CHAT_COMPLETE.format(target), **DEFAULT_REPLY_MARKUP)
 
         return END
     return inner_done_chat
 
 
-def _error(update, context):
-    logger.error(context)
+async def _error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(context.error)
 
 
@@ -391,11 +398,8 @@ def main():
     # Create the Updater and pass it your bot's token.
     # Make sure to set use_context=True to use the new context based callbacks
     # Post version 12 this will no longer be necessary
-    pp = PicklePersistence(filename='conversationbot')
-    updater = Updater(TOKEN, persistence=pp, use_context=True)
-
-    # Get the dispatcher to register handlers
-    dp = updater.dispatcher
+    pp = PicklePersistence('conversationbot')
+    application = Application.builder().token(TOKEN).persistence(pp).build()
 
     chat_handler = ConversationHandler(
         entry_points=[MessageHandler(get_filter_complete_match(DRAGON_CHAT_KEY), check_dragon),
@@ -403,37 +407,37 @@ def main():
                       MessageHandler(get_filter_complete_match(
                           TRAINER_CHAT_KEY), check_trainer),
                       CommandHandler(TRAINER_KEY, check_trainer),
-                      MessageHandler(Filters.reply, handle_reply_message(None)), ],
+                      MessageHandler(filters.REPLY, handle_reply_message(None)), ],
 
         states={
             # Chat with dragon
-            DRAGON_CHAT: [MessageHandler(Filters.update.edited_message,
+            DRAGON_CHAT: [MessageHandler(filters.UpdateType.EDITED_MESSAGE,
                                          handle_edited_message),
                           CommandHandler(DONE_KEY, done_chat(DRAGON_KEY)),
                           CommandHandler(DELETE_KEY, handle_delete_message),
                           MessageHandler(
-                              Filters.command | COMMAND_FILTER_REGEX, handle_unknown_message_chat(DRAGON_KEY)),
+                              filters.COMMAND | COMMAND_FILTER_REGEX, handle_unknown_message_chat(DRAGON_KEY)),
                           MessageHandler(
-                              Filters.reply, handle_reply_message(Role.DRAGON)),
+                              filters.REPLY, handle_reply_message(Role.DRAGON)),
                           MessageHandler(
                               SUPPORTED_MESSAGE_FILTERS, send_dragon),
                           MessageHandler(UNSUPPORTED_MESSAGE_FILTERS, unsupported_media)],
 
             # Chat with trainer
-            TRAINER_CHAT: [MessageHandler(Filters.update.edited_message,
+            TRAINER_CHAT: [MessageHandler(filters.UpdateType.EDITED_MESSAGE,
                                           handle_edited_message),
                            CommandHandler(DONE_KEY, done_chat(TRAINER_KEY)),
                            CommandHandler(DELETE_KEY, handle_delete_message),
                            MessageHandler(
-                               Filters.command | COMMAND_FILTER_REGEX, handle_unknown_message_chat(TRAINER_KEY)),
+                               filters.COMMAND | COMMAND_FILTER_REGEX, handle_unknown_message_chat(TRAINER_KEY)),
                            MessageHandler(
-                               Filters.reply, handle_reply_message(Role.TRAINER)),
+                               filters.REPLY, handle_reply_message(Role.TRAINER)),
                            MessageHandler(
                                SUPPORTED_MESSAGE_FILTERS, send_trainer),
                            MessageHandler(UNSUPPORTED_MESSAGE_FILTERS, unsupported_media)],
 
             TIMEOUT: [MessageHandler(
-                Filters.text | Filters.command, handle_timeout_chat)]
+                filters.TEXT | filters.COMMAND, handle_timeout_chat)]
         },
 
         fallbacks=[],
@@ -450,17 +454,17 @@ def main():
         entry_points=[CommandHandler(ADMIN_KEY, check_admin)],
 
         states={
-            ADMIN_CHAT: [MessageHandler(Filters.update.edited_message,
+            ADMIN_CHAT: [MessageHandler(filters.UpdateType.EDITED_MESSAGE,
                                         handle_edited_message),
                          CommandHandler(DONE_KEY, done_chat(ADMIN_KEY)),
-                         CommandHandler(DELETE_KEY, handle_delete_admin, run_async=True),
+                         CommandHandler(DELETE_KEY, handle_delete_admin, block=False),
                          MessageHandler(
-                             Filters.command | COMMAND_FILTER_REGEX, handle_unknown_message_chat(ADMIN_KEY)),
-                         MessageHandler(SUPPORTED_MESSAGE_FILTERS, send_admin, run_async=True),
+                             filters.COMMAND | COMMAND_FILTER_REGEX, handle_unknown_message_chat(ADMIN_KEY)),
+                         MessageHandler(SUPPORTED_MESSAGE_FILTERS, send_admin, block=False),
                          MessageHandler(UNSUPPORTED_MESSAGE_FILTERS, unsupported_media)],
 
             TIMEOUT: [MessageHandler(
-                Filters.text | Filters.command, handle_timeout_chat)]
+                filters.TEXT | filters.COMMAND, handle_timeout_chat)]
         },
 
         fallbacks=[],
@@ -474,13 +478,13 @@ def main():
     )
 
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.update.edited_message, handle_edited_message),
-                      MessageHandler(Filters.all, start, run_async=True), ],
+        entry_points=[MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited_message),
+                      MessageHandler(filters.ALL, start, block=False), ],
 
         states={
-            UNREGISTERED: [MessageHandler(Filters.all, start, run_async=True)],
+            UNREGISTERED: [MessageHandler(filters.ALL, start, block=False)],
 
-            MAIN: [MessageHandler(Filters.update.edited_message, handle_edited_message),
+            MAIN: [MessageHandler(filters.UpdateType.EDITED_MESSAGE, handle_edited_message),
                    chat_handler,
                    admin_handler,
                    CommandHandler(MENU_KEY, start),
@@ -491,22 +495,17 @@ def main():
                    MessageHandler(get_filter_complete_match(STATUS_KEY), status)],
         },
 
-        fallbacks=[MessageHandler(Filters.all, unknown_message)],
+        fallbacks=[MessageHandler(filters.ALL, unknown_message)],
 
         name="main_conversation",
         persistent=True,
     )
 
-    dp.add_error_handler(_error, run_async=True)
-    dp.add_handler(conv_handler)
+    application.add_error_handler(_error, block=False)
+    application.add_handler(conv_handler)
 
     # Start the Bot
-    updater.start_polling()
-
-    # Run the bot until you press Ctrl-C or the process receives SIGINT,
-    # SIGTERM or SIGABRT. This should be used most of the time, since
-    # start_polling() is non-blocking and will stop the bot gracefully.
-    updater.idle()
+    application.run_polling()
 
 
 if __name__ == '__main__':
