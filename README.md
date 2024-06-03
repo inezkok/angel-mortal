@@ -9,12 +9,12 @@
 
 ### Setting up in Virtual Environment
 
- 1. Setup Virtual Environment
+ 1. Setup virtual environment
     ```
     $ python -m venv venv
     ```
 
- 2. Activate Virtual Environment
+ 2. Activate virtual environment
     ```
     $ source venv/bin/activate
     ```
@@ -34,25 +34,31 @@
 
 ### Getting Started
 
- 1. Install Python Dependencies
+ 1. Install Python dependencies
 
     ```
     $ pip install -r requirements.txt
     ```
 
- 2. Create the environment file (make a copy of `env.sample` and rename it to `.env`).
+ 2. Install additional Python Telegram Bot dependency (for job queue)
+
+    ```
+    $ pip install python-telegram-bot[job-queue]
+    ```
+
+ 3. Create the environment file (make a copy of `env.sample` and rename it to `.env`).
     Add the details for each environment variable.
 
     ```
     TELEGRAM_BOT_TOKEN=<put_your_telegram_bot_token_here>
     ```
 
- 3. Create database
+ 4. Create database
     ```
     $ python setup.py
     ```
 
- 4. Run the python telegram server
+ 5. Run the python telegram server
     ```
     $ python main.py
     ```
